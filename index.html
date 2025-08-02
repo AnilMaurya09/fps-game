@@ -195,6 +195,12 @@ const speed = 20;
 let isDragging = false, prevX = 0, prevY = 0;
 
 // ===== EVENTS =====
+  if (screen.orientation && screen.orientation.lock) {
+  screen.orientation.lock("landscape").catch(err => {
+    console.log("Orientation lock failed:", err);
+  });
+}
+
 document.addEventListener('keydown', e => {
   if (e.code === 'KeyW') move.forward = true;
   if (e.code === 'KeyS') move.backward = true;
