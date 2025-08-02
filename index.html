@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>FPS Game - Final Landscape</title>
+<title>FPS Game - Bot Shooting + Score</title>
 <style>
   body { margin: 0; overflow: hidden; background: #000; font-family: Arial; touch-action: none; }
   #hud {
@@ -12,8 +12,7 @@
     color: white;
     z-index: 20;
   }
-  #ammo { font-size: 18px; }
-  #timer { font-size: 18px; margin-top: 5px; }
+  #ammo, #timer, #score { font-size: 18px; }
   #healthBar { width: 200px; height: 20px; background: #555; margin-top: 5px; border-radius: 5px; overflow: hidden; }
   #health { width: 100%; height: 100%; background: #0f0; transition: width 0.2s; }
   #fireBtn, #reloadBtn {
@@ -72,19 +71,38 @@
     text-align: center;
     z-index: 30;
   }
+  #restartBtn {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 18px;
+    background: #0f0;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  #hitFlash {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(255,0,0,0.3);
+    display: none;
+    z-index: 25;
+  }
 </style>
 </head>
 <body>
 <div id="hud">
   <div id="ammo">Ammo: 10 / 30</div>
   <div id="timer">Time: 60</div>
+  <div id="score">Score: 0</div>
   <div id="healthBar"><div id="health"></div></div>
 </div>
 <button id="fireBtn">FIRE</button>
 <button id="reloadBtn">RLD</button>
 <div id="joystick"><div id="stick"></div></div>
 <div id="crosshair"><div class="horiz"></div><div class="vert"></div></div>
-<div id="gameOver">GAME OVER<br><small>Refresh to Restart</small></div>
+<div id="hitFlash"></div>
+<div id="gameOver">GAME OVER<br><button id="restartBtn">Restart</button></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -98,7 +116,6 @@ function enableFullscreen() {
   const el = document.documentElement;
   if (el.requestFullscreen) el.requestFullscreen();
   else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-
   if (screen.orientation && screen.orientation.lock) {
     screen.orientation.lock('landscape').catch(err => console.log('Lock failed:', err));
   }
@@ -114,6 +131,7 @@ let reserveAmmo = TOTAL_AMMO - MAX_AMMO;
 let health = 100;
 let timeLeft = 60;
 let gameOver = false;
+let score = 0;
 
 // ======== SOUNDS ==========
 const fireSound = new Audio("https://cdn.pixabay.com/download/audio/2022/03/15/audio_4b8c91fa2d.mp3?filename=gunshot-14839.mp3");
@@ -162,18 +180,22 @@ const gunMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
 const gun = new THREE.Mesh(gunGeometry, gunMaterial);
 scene.add(gun);
 
-// Muzzle Flash
-const flashGeometry = new THREE.SphereGeometry(0.2, 16, 16);
-const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-const muzzleFlash = new THREE.Mesh(flashGeometry, flashMaterial);
-muzzleFlash.visible = false;
-scene.add(muzzleFlash);
+// Player hit flash
+const hitFlash = document.getElementById('hitFlash');
+
+// Enemy muzzle flash template
+const enemyFlashGeo = new THREE.SphereGeometry(0.2, 16, 16);
+const enemyFlashMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 
 // Bots
 const bots = [];
 function createBot(x, z) {
-  const bot = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshPhongMaterial({ color: 0xff0000 }));
-  bot.position.set(x, 1, z);
+  const bot = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), new THREE.MeshPhongMaterial({ color: 0xff0000 }));
+  bot.position.set(x, 0.75, z);
+  bot.shootTimer = 0;
+  bot.flash = new THREE.Mesh(enemyFlashGeo, enemyFlashMat);
+  bot.flash.visible = false;
+  scene.add(bot.flash);
   scene.add(bot);
   bots.push(bot);
 }
@@ -185,6 +207,7 @@ createBot(-10, -30);
 const ammoEl = document.getElementById('ammo');
 const timerEl = document.getElementById('timer');
 const healthEl = document.getElementById('health');
+const scoreEl = document.getElementById('score');
 const gameOverEl = document.getElementById('gameOver');
 
 // Controls
@@ -243,16 +266,10 @@ function shoot() {
   raycaster.set(camera.position, dir);
   const hits = raycaster.intersectObjects(bots);
   if (hits.length > 0) {
+    score += 10;
     hits[0].object.material.color.set(0x00ff00);
     setTimeout(() => hits[0].object.material.color.set(0xff0000), 200);
   }
-  showMuzzleFlash();
-}
-
-function showMuzzleFlash() {
-  muzzleFlash.position.copy(gun.position).add(new THREE.Vector3(0, 0, -0.7).applyQuaternion(camera.quaternion));
-  muzzleFlash.visible = true;
-  setTimeout(() => muzzleFlash.visible = false, 100);
 }
 
 // Reload
@@ -302,9 +319,26 @@ setInterval(() => {
 function updateHUD() {
   ammoEl.textContent = `Ammo: ${ammo} / ${reserveAmmo}`;
   timerEl.textContent = `Time: ${timeLeft}`;
+  scoreEl.textContent = `Score: ${score}`;
   healthEl.style.width = health + '%';
   if (health < 50) healthEl.style.background = '#ff0';
   if (health < 25) healthEl.style.background = '#f00';
+}
+
+// Enemy shooting
+function enemyShoot(bot) {
+  bot.flash.position.copy(bot.position).add(new THREE.Vector3(0, 0.8, 0.8));
+  bot.flash.visible = true;
+  setTimeout(() => bot.flash.visible = false, 100);
+  health -= 5;
+  showHitEffect();
+  if (health <= 0) endGame();
+}
+
+// Red screen flash
+function showHitEffect() {
+  hitFlash.style.display = 'block';
+  setTimeout(() => hitFlash.style.display = 'none', 150);
 }
 
 // End Game
@@ -313,6 +347,11 @@ function endGame() {
   gameOverEl.style.display = 'block';
   bgMusic.pause();
 }
+
+// Restart
+document.getElementById('restartBtn').addEventListener('click', () => {
+  location.reload();
+});
 
 // Animate
 let prevTime = performance.now();
@@ -344,13 +383,18 @@ function animate() {
     gun.position.copy(camera.position).add(new THREE.Vector3(0.3, -0.3, -0.8).applyQuaternion(camera.quaternion));
     gun.quaternion.copy(camera.quaternion);
 
-    // Bots move toward player
+    // Bots shoot at player if in range
     bots.forEach(bot => {
-      const dir = camera.position.clone().sub(bot.position).normalize();
-      bot.position.addScaledVector(dir, 0.05);
-      if (bot.position.distanceTo(camera.position) < 2) {
-        health -= 0.5;
-        if (health <= 0) endGame();
+      const distance = bot.position.distanceTo(camera.position);
+      if (distance > 15) {
+        const dir = camera.position.clone().sub(bot.position).normalize();
+        bot.position.addScaledVector(dir, 0.05);
+      } else {
+        bot.shootTimer += delta;
+        if (bot.shootTimer > 2) { // shoot every 2 seconds
+          enemyShoot(bot);
+          bot.shootTimer = 0;
+        }
       }
     });
 
