@@ -2,30 +2,50 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>FPS Game Full</title>
+<title>FPS Game - Final</title>
 <style>
-  body { margin: 0; overflow: hidden; background: #000; }
-  #score {
+  body { margin: 0; overflow: hidden; background: #000; font-family: Arial; }
+  #hud {
     position: fixed;
     top: 10px;
     left: 10px;
     color: white;
-    font-size: 24px;
-    font-family: Arial;
+    z-index: 20;
   }
-  #fireBtn {
+  #ammo {
+    font-size: 18px;
+  }
+  #timer {
+    font-size: 18px;
+    margin-top: 5px;
+  }
+  #healthBar {
+    width: 200px;
+    height: 20px;
+    background: #555;
+    margin-top: 5px;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  #health {
+    width: 100%;
+    height: 100%;
+    background: #0f0;
+    transition: width 0.2s;
+  }
+  #fireBtn, #reloadBtn {
     position: fixed;
     bottom: 80px;
-    right: 30px;
     width: 80px;
     height: 80px;
     border-radius: 50%;
-    background: rgba(255,0,0,0.8);
     color: white;
     font-size: 18px;
     border: none;
     z-index: 10;
   }
+  #fireBtn { right: 30px; background: rgba(255,0,0,0.8); }
+  #reloadBtn { right: 130px; background: rgba(0,0,255,0.8); }
   #joystick {
     position: fixed;
     bottom: 40px;
@@ -46,7 +66,6 @@
     top: 30px;
     left: 30px;
   }
-  /* Crosshair */
   #crosshair {
     position: fixed;
     top: 50%;
@@ -57,45 +76,70 @@
     margin-top: -10px;
     z-index: 20;
   }
-  #crosshair div {
-    position: absolute;
-    background: white;
-  }
-  #crosshair .horiz {
-    top: 9px;
-    left: 0;
-    width: 20px;
-    height: 2px;
-  }
-  #crosshair .vert {
-    left: 9px;
-    top: 0;
-    width: 2px;
-    height: 20px;
+  #crosshair div { position: absolute; background: white; }
+  #crosshair .horiz { top: 9px; left: 0; width: 20px; height: 2px; }
+  #crosshair .vert { left: 9px; top: 0; width: 2px; height: 20px; }
+  #gameOver {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 36px;
+    display: none;
+    text-align: center;
+    z-index: 30;
   }
 </style>
 </head>
 <body>
-<div id="score">Score: 0</div>
-<button id="fireBtn">FIRE</button>
-<div id="joystick"><div id="stick"></div></div>
-<div id="crosshair">
-  <div class="horiz"></div>
-  <div class="vert"></div>
+<div id="hud">
+  <div id="ammo">Ammo: 10 / 30</div>
+  <div id="timer">Time: 60</div>
+  <div id="healthBar"><div id="health"></div></div>
 </div>
+<button id="fireBtn">FIRE</button>
+<button id="reloadBtn">RLD</button>
+<div id="joystick"><div id="stick"></div></div>
+<div id="crosshair"><div class="horiz"></div><div class="vert"></div></div>
+<div id="gameOver">GAME OVER<br><small>Refresh to Restart</small></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
 <script>
-// Scene
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xa0d8f0);
+// ======== CONFIG ==========
+const MAX_AMMO = 10;
+const TOTAL_AMMO = 30;
+let ammo = MAX_AMMO;
+let reserveAmmo = TOTAL_AMMO - MAX_AMMO;
+let health = 100;
+let timeLeft = 60;
+let gameOver = false;
 
-// Camera
+// ======== SOUNDS ==========
+const fireSound = new Audio("https://cdn.pixabay.com/download/audio/2022/03/15/audio_4b8c91fa2d.mp3?filename=gunshot-14839.mp3");
+const reloadSound = new Audio("https://cdn.pixabay.com/download/audio/2022/03/15/audio_6a9dd85f63.mp3?filename=reload-14833.mp3");
+const bgMusic = new Audio("https://cdn.pixabay.com/download/audio/2021/09/14/audio_15fc070eb4.mp3?filename=bg-music-11013.mp3");
+bgMusic.loop = true;
+bgMusic.volume = 0.3;
+bgMusic.play();
+
+// ======== SCENE ==========
+const scene = new THREE.Scene();
+const loader = new THREE.CubeTextureLoader();
+const texture = loader.load([
+  'https://threejs.org/examples/textures/cube/skybox/px.jpg',
+  'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
+  'https://threejs.org/examples/textures/cube/skybox/py.jpg',
+  'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
+  'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
+  'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
+]);
+scene.background = texture;
+
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
 camera.position.set(0, 2, 5);
 
-// Renderer
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -113,75 +157,69 @@ const ground = new THREE.Mesh(
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-// Moving targets (bots)
-const targets = [];
-function createTarget(x, z) {
-  const target = new THREE.Mesh(
-    new THREE.BoxGeometry(2, 2, 2),
-    new THREE.MeshPhongMaterial({ color: 0xff0000 })
-  );
-  target.position.set(x, 1, z);
-  scene.add(target);
-  targets.push({ mesh: target, speed: 0.02 });
-}
-createTarget(0, -15);
-createTarget(10, -20);
-createTarget(-10, -25);
-
-// Gun model
+// Gun
 const gunGeometry = new THREE.BoxGeometry(0.2, 0.2, 1);
 const gunMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
 const gun = new THREE.Mesh(gunGeometry, gunMaterial);
 scene.add(gun);
 
-// Muzzle flash
+// Muzzle Flash
 const flashGeometry = new THREE.SphereGeometry(0.2, 16, 16);
 const flashMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
 const muzzleFlash = new THREE.Mesh(flashGeometry, flashMaterial);
 muzzleFlash.visible = false;
 scene.add(muzzleFlash);
 
-// Movement variables
-const move = { forward: false, backward: false, left: false, right: false };
-const speed = 20;
-let joystickDir = { x: 0, y: 0 };
+// Bots
+const bots = [];
+function createBot(x, z) {
+  const bot = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshPhongMaterial({ color: 0xff0000 }));
+  bot.position.set(x, 1, z);
+  scene.add(bot);
+  bots.push(bot);
+}
+createBot(0, -20);
+createBot(10, -25);
+createBot(-10, -30);
 
-document.addEventListener('keydown', (e) => {
+// HUD
+const ammoEl = document.getElementById('ammo');
+const timerEl = document.getElementById('timer');
+const healthEl = document.getElementById('health');
+const gameOverEl = document.getElementById('gameOver');
+
+// Controls
+let move = { forward: false, backward: false, left: false, right: false };
+let joystickDir = { x: 0, y: 0 };
+const speed = 20;
+let isDragging = false, prevX = 0, prevY = 0;
+
+// ===== EVENTS =====
+document.addEventListener('keydown', e => {
   if (e.code === 'KeyW') move.forward = true;
   if (e.code === 'KeyS') move.backward = true;
   if (e.code === 'KeyA') move.left = true;
   if (e.code === 'KeyD') move.right = true;
 });
-document.addEventListener('keyup', (e) => {
+document.addEventListener('keyup', e => {
   if (e.code === 'KeyW') move.forward = false;
   if (e.code === 'KeyS') move.backward = false;
   if (e.code === 'KeyA') move.left = false;
   if (e.code === 'KeyD') move.right = false;
 });
 
-// Camera look
-let isDragging = false, prevX = 0, prevY = 0;
-document.addEventListener('mousedown', (e) => { isDragging = true; prevX = e.clientX; prevY = e.clientY; });
-document.addEventListener('mouseup', () => { isDragging = false; });
-document.addEventListener('mousemove', (e) => {
-  if (isDragging) {
-    rotateCamera(e.clientX, e.clientY);
-    prevX = e.clientX;
-    prevY = e.clientY;
-  }
+document.addEventListener('mousedown', e => { isDragging = true; prevX = e.clientX; prevY = e.clientY; });
+document.addEventListener('mouseup', () => isDragging = false);
+document.addEventListener('mousemove', e => {
+  if (isDragging) rotateCamera(e.clientX, e.clientY);
+  prevX = e.clientX; prevY = e.clientY;
 });
-document.addEventListener('touchstart', (e) => {
-  if (e.touches.length === 1) {
-    prevX = e.touches[0].clientX;
-    prevY = e.touches[0].clientY;
-  }
+document.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) { prevX = e.touches[0].clientX; prevY = e.touches[0].clientY; }
 });
-document.addEventListener('touchmove', (e) => {
-  if (e.touches.length === 1) {
-    rotateCamera(e.touches[0].clientX, e.touches[0].clientY);
-    prevX = e.touches[0].clientX;
-    prevY = e.touches[0].clientY;
-  }
+document.addEventListener('touchmove', e => {
+  if (e.touches.length === 1) rotateCamera(e.touches[0].clientX, e.touches[0].clientY);
+  prevX = e.touches[0].clientX; prevY = e.touches[0].clientY;
 });
 
 function rotateCamera(newX, newY) {
@@ -192,21 +230,22 @@ function rotateCamera(newX, newY) {
   camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
 }
 
-// Shooting
-let score = 0;
-const scoreEl = document.getElementById('score');
+// Fire
 document.getElementById('fireBtn').addEventListener('click', shoot);
 document.addEventListener('click', shoot);
-
 function shoot() {
+  if (gameOver || ammo <= 0) return;
+  ammo--;
+  updateHUD();
+  fireSound.currentTime = 0;
+  fireSound.play();
   const raycaster = new THREE.Raycaster();
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
   raycaster.set(camera.position, dir);
-  const hits = raycaster.intersectObjects(targets.map(t => t.mesh));
+  const hits = raycaster.intersectObjects(bots);
   if (hits.length > 0) {
     hits[0].object.material.color.set(0x00ff00);
-    score += 10;
-    scoreEl.textContent = "Score: " + score;
+    setTimeout(() => hits[0].object.material.color.set(0xff0000), 200);
   }
   showMuzzleFlash();
 }
@@ -217,19 +256,28 @@ function showMuzzleFlash() {
   setTimeout(() => muzzleFlash.visible = false, 100);
 }
 
+// Reload
+document.getElementById('reloadBtn').addEventListener('click', reload);
+function reload() {
+  if (ammo < MAX_AMMO && reserveAmmo > 0) {
+    reloadSound.play();
+    const needed = MAX_AMMO - ammo;
+    const load = Math.min(needed, reserveAmmo);
+    ammo += load;
+    reserveAmmo -= load;
+    updateHUD();
+  }
+}
+
 // Joystick
 const joystick = document.getElementById('joystick');
 const stick = document.getElementById('stick');
 let centerX = joystick.offsetWidth / 2;
 let centerY = joystick.offsetHeight / 2;
 
-joystick.addEventListener('touchstart', (e) => moveStick(e.touches[0].clientX, e.touches[0].clientY));
-joystick.addEventListener('touchmove', (e) => moveStick(e.touches[0].clientX, e.touches[0].clientY));
-joystick.addEventListener('touchend', () => {
-  stick.style.top = '30px';
-  stick.style.left = '30px';
-  joystickDir = { x: 0, y: 0 };
-});
+joystick.addEventListener('touchstart', e => moveStick(e.touches[0].clientX, e.touches[0].clientY));
+joystick.addEventListener('touchmove', e => moveStick(e.touches[0].clientX, e.touches[0].clientY));
+joystick.addEventListener('touchend', () => { stick.style.top = '30px'; stick.style.left = '30px'; joystickDir = { x: 0, y: 0 }; });
 
 function moveStick(x, y) {
   const rect = joystick.getBoundingClientRect();
@@ -237,52 +285,85 @@ function moveStick(x, y) {
   const dy = y - rect.top - centerY;
   const distance = Math.min(Math.sqrt(dx*dx + dy*dy), centerX - 10);
   const angle = Math.atan2(dy, dx);
-  const newX = centerX + distance * Math.cos(angle) - stick.offsetWidth / 2;
-  const newY = centerY + distance * Math.sin(angle) - stick.offsetHeight / 2;
-  stick.style.left = newX + 'px';
-  stick.style.top = newY + 'px';
+  stick.style.left = (centerX + distance * Math.cos(angle) - stick.offsetWidth/2) + 'px';
+  stick.style.top = (centerY + distance * Math.sin(angle) - stick.offsetHeight/2) + 'px';
   joystickDir = { x: Math.cos(angle) * (distance / (centerX - 10)), y: Math.sin(angle) * (distance / (centerY - 10)) };
+}
+
+// Timer
+setInterval(() => {
+  if (!gameOver) {
+    timeLeft--;
+    updateHUD();
+    if (timeLeft <= 0) endGame();
+  }
+}, 1000);
+
+// Update HUD
+function updateHUD() {
+  ammoEl.textContent = `Ammo: ${ammo} / ${reserveAmmo}`;
+  timerEl.textContent = `Time: ${timeLeft}`;
+  healthEl.style.width = health + '%';
+  if (health < 50) healthEl.style.background = '#ff0';
+  if (health < 25) healthEl.style.background = '#f00';
+}
+
+// End Game
+function endGame() {
+  gameOver = true;
+  gameOverEl.style.display = 'block';
+  bgMusic.pause();
 }
 
 // Animate
 let prevTime = performance.now();
 function animate() {
   requestAnimationFrame(animate);
-  const time = performance.now();
-  const delta = (time - prevTime) / 1000;
+  if (!gameOver) {
+    const time = performance.now();
+    const delta = (time - prevTime) / 1000;
 
-  const direction = new THREE.Vector3();
-  if (move.forward) direction.z = -1;
-  if (move.backward) direction.z = 1;
-  if (move.left) direction.x = -1;
-  if (move.right) direction.x = 1;
+    const direction = new THREE.Vector3();
+    if (move.forward) direction.z = -1;
+    if (move.backward) direction.z = 1;
+    if (move.left) direction.x = -1;
+    if (move.right) direction.x = 1;
+    direction.x += joystickDir.x;
+    direction.z -= joystickDir.y;
+    if (direction.length() > 0) direction.normalize();
 
-  direction.x += joystickDir.x;
-  direction.z -= joystickDir.y;
-  if (direction.length() > 0) direction.normalize();
+    const moveX = direction.x * speed * delta;
+    const moveZ = direction.z * speed * delta;
 
-  const moveX = direction.x * speed * delta;
-  const moveZ = direction.z * speed * delta;
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
 
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    camera.position.addScaledVector(forward, moveZ);
+    camera.position.addScaledVector(right, moveX);
 
-  camera.position.addScaledVector(forward, moveZ);
-  camera.position.addScaledVector(right, moveX);
+    // Gun follows
+    gun.position.copy(camera.position).add(new THREE.Vector3(0.3, -0.3, -0.8).applyQuaternion(camera.quaternion));
+    gun.quaternion.copy(camera.quaternion);
 
-  // Gun follows camera
-  gun.position.copy(camera.position).add(new THREE.Vector3(0.3, -0.3, -0.8).applyQuaternion(camera.quaternion));
-  gun.quaternion.copy(camera.quaternion);
+    // Bots move toward player
+    bots.forEach(bot => {
+      const dir = camera.position.clone().sub(bot.position).normalize();
+      bot.position.addScaledVector(dir, 0.05);
+      if (bot.position.distanceTo(camera.position) < 2) {
+        health -= 0.5;
+        if (health <= 0) endGame();
+      }
+    });
 
-  // Move targets (bots)
-  targets.forEach(t => {
-    t.mesh.position.x += Math.sin(time * 0.001 * t.speed * 100);
-  });
-
-  prevTime = time;
-  renderer.render(scene, camera);
+    updateHUD();
+    prevTime = time;
+    renderer.render(scene, camera);
+  }
 }
 animate();
+
+// Init HUD
+updateHUD();
 </script>
 </body>
 </html>
